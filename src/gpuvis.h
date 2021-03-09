@@ -1209,6 +1209,9 @@ public:
     static int load_trace_file( loading_info_t *loading_info, TraceEvents &trace_events, EventCallback trace_cb );
     static int load_etl_file( loading_info_t *loading_info, TraceEvents &trace_events, EventCallback trace_cb );
     static int load_i915_perf_file( loading_info_t *loading_info, TraceEvents &trace_events, EventCallback trace_cb );
+#if defined( LINUX_PERF )
+    static int load_perf_file( loading_info_t *loading_info, TraceEvents &trace_events, EventCallback trace_cb );
+#endif
 
 public:
     enum trace_type_t
@@ -1217,6 +1220,7 @@ public:
         trace_type_trace,
         trace_type_etl,
         trace_type_i915_perf_trace,
+        trace_type_perf,
     };
 
     struct loading_info_t

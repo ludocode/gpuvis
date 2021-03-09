@@ -56,6 +56,10 @@
 
 #include "miniz.h"
 
+#if defined( LINUX_PERF )
+#include "perf_gpuviz.h"
+#endif
+
 // https://github.com/ocornut/imgui/issues/88
 #if defined( __APPLE__ )
   #define NOC_FILE_DIALOG_IMPLEMENTATION
@@ -639,6 +643,12 @@ bool MainApp::load_file( const char *filename, bool last )
     {
         m_trace_type = trace_type_i915_perf_trace;
     }
+#if defined( LINUX_PERF )
+    else if ( real_ext && !strcmp( real_ext, ".data" ) )
+    {
+        m_trace_type = trace_type_perf;
+    }
+#endif
 
     size_t filesize = get_file_size( filename );
     if ( !filesize )
@@ -780,6 +790,50 @@ int MainApp::load_i915_perf_file( loading_info_t *loading_info, TraceEvents &tra
     return ret;
 }
 
+#if defined( LINUX_PERF )
+int MainApp::load_perf_file( loading_info_t *loading_info, TraceEvents &trace_events, EventCallback trace_cb )
+{
+    struct wrapper_t {
+        TraceEvents& trace_events;
+        EventCallback& trace_cb;
+    } wrapper = {
+        trace_events,
+        trace_cb,
+    };
+
+    return perf_gpuviz_load( loading_info->filename.c_str(), &wrapper,
+            [](void* context,
+                int64_t timestamp,
+                int pid,
+                int cpu,
+                const char* comm,
+                const char* symbol,
+                const char* dso)
+            {
+                wrapper_t* inner_wrapper = static_cast<wrapper_t*>(context);
+                StrPool& strpool = inner_wrapper->trace_events.m_strpool;
+
+                trace_event_t trace_event;
+
+                trace_event.pid = pid;
+                trace_event.cpu = cpu;
+                trace_event.ts = timestamp;
+
+                trace_event.comm = strpool.getstrf( "%s-%u", comm, trace_event.pid );
+                trace_event.system = "Linux-perf";
+                trace_event.name = strpool.getstr( symbol );
+                trace_event.user_comm = trace_event.comm;
+
+                trace_event.fields = new event_field_t[ 1 ];
+                trace_event.fields[ 0 ].key = "dso";
+                trace_event.fields[ 0 ].value = strpool.getstr( dso );
+                trace_event.numfields = 1;
+
+                inner_wrapper->trace_cb( trace_event );
+            });
+}
+#endif
+
 int SDLCALL MainApp::thread_func( void *data )
 {
     util_time_t t0 = util_get_time();
@@ -811,6 +865,11 @@ int SDLCALL MainApp::thread_func( void *data )
         case trace_type_i915_perf_trace:
             ret = load_i915_perf_file( loading_info, trace_events, trace_cb );
             break;
+#if defined( LINUX_PERF )
+        case trace_type_perf:
+            ret = load_perf_file( loading_info, trace_events, trace_cb );
+            break;
+#endif
         default:
             ret = -1;
             break;
@@ -4852,7 +4911,15 @@ void MainApp::open_trace_dialog()
     else
     {
         const char *file = noc_file_dialog_open( NOC_FILE_DIALOG_OPEN,
-                                 "trace-cmd files (*.dat;*.trace;*.etl;*.zip)\0*.dat;*.trace;*.etl;*.zip\0",
+                                 "trace-cmd files (*.dat;*.trace;*.etl;*.zip"
+#if defined( LINUX_PERF )
+                                 ";*.data"
+#endif
+                                 ")\0*.dat;*.trace;*.etl;*.zip"
+#if defined( LINUX_PERF )
+                                 ";*.data"
+#endif
+                                 "\0",
                                  NULL, "trace.dat" );
 
         if ( file && file[ 0 ] )

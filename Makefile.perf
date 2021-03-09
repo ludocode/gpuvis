@@ -1,0 +1,53 @@
+ifeq ($(LINUX_PATH),)
+$(error "LINUX_PATH must be set.")
+endif
+ifeq ($(ODIR),)
+$(error "ODIR must be set.")
+endif
+
+$(LINUX_PATH)/tools/perf/perf:
+	cd $(LINUX_PATH)/tools/perf && make perf
+
+$(ODIR)/perf_gpuviz.o: src/perf_gpuviz.c Makefile.perf Makefile
+	$(VERBOSE_PREFIX)echo "---- $< ----";
+	@$(MKDIR) $(dir $@)
+	$(VERBOSE_PREFIX)$(CC) -MMD -MP -std=gnu99 $(CFLAGS) \
+			-I$(LINUX_PATH)/tools/arch/x86/include \
+			-I$(LINUX_PATH)/tools/include \
+			-I$(LINUX_PATH)/tools/include/uapi \
+			-I$(LINUX_PATH)/tools/lib/perf/include \
+			-I$(LINUX_PATH)/tools/lib \
+			-I$(LINUX_PATH)/tools/perf \
+			-I$(LINUX_PATH)/tools/perf/util \
+			-Wno-pedantic \
+			-o $@ -c $<
+
+$(ODIR)/perf.o: $(LINUX_PATH)/tools/perf/perf Makefile.perf Makefile $(ODIR)/perf_gpuviz.o
+	$(VERBOSE_PREFIX)rm -f $@
+	$(VERBOSE_PREFIX)echo "Partial-linking $@..."
+	$(VERBOSE_PREFIX)gcc -r -nostdlib -o $@.tmp.o \
+			$(LINUX_PATH)/tools/perf/perf-in.o \
+			$(LINUX_PATH)/tools/perf/pmu-events/pmu-events-in.o \
+			-Wl,--whole-archive \
+			$(LINUX_PATH)/tools/lib/api/libapi.a \
+			$(LINUX_PATH)/tools/lib/traceevent/libtraceevent.a \
+			$(LINUX_PATH)/tools/lib/subcmd/libsubcmd.a \
+			$(LINUX_PATH)/tools/lib/perf/libperf.a \
+			$(LINUX_PATH)/tools/lib/bpf/libbpf.a \
+			$(ODIR)/perf_gpuviz.o
+	@# Localize all symbols except those we export from perf_gpuviz.c. In
+	@# particular we need to localize main(), but also the trace-cmd symbols
+	@# which conflict with perf's libtraceevent.
+	$(VERBOSE_PREFIX)objcopy \
+			-G perf_gpuviz_load \
+			$@.tmp.o $@
+
+# from perf Makefile.config
+PERL_EMBED_LDOPTS = $(shell perl -MExtUtils::Embed -e ldopts 2>/dev/null)
+
+LIBS += -Wl,--start-group \
+		-lpthread -lrt -lm -ldl -lelf -ldebuginfod -ldw -lunwind-x86_64 -lunwind \
+		-llzma -lcrypto -lslang $(PERL_EMBED_LDOPTS) -lpython2.7 -lpthread -ldl \
+		-lutil -lm -lutil -lbfd -lopcodes -liberty -lz -llzma -lzstd -lcap -lnuma \
+		-lbabeltrace-ctf \
+		-Wl,--end-group

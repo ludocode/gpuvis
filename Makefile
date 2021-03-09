@@ -13,6 +13,9 @@
 # Ie:
 #   scan-build -k -V --use-analyzer ~/bin/clang make
 
+.PHONY: all
+all:
+
 NAME = gpuvis
 
 USE_GTK3 ?= 1
@@ -143,6 +146,12 @@ $(info Building $(ODIR)/$(NAME)...)
 C_OBJS = ${CFILES:%.c=${ODIR}/%.o}
 OBJS = ${C_OBJS:%.cpp=${ODIR}/%.o}
 
+ifneq ($(LINUX_PATH),)
+	include Makefile.perf
+	OBJS += $(ODIR)/perf.o
+	CFLAGS += -DLINUX_PERF=1
+endif
+
 all: $(PROJ)
 
 $(ODIR)/$(NAME): $(OBJS)
@@ -169,3 +178,4 @@ clean:
 	$(VERBOSE_PREFIX)$(RM) $(OBJS)
 	$(VERBOSE_PREFIX)$(RM) $(OBJS:.o=.d)
 	$(VERBOSE_PREFIX)$(RM) $(OBJS:.o=.dwo)
+	$(VERBOSE_PREFIX)$(RM) $(ODIR)/perf_gpuviz.o
